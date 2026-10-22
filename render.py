@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AURA AI STUDIO PRO — Video Render Engine v4.0 Ultra Cinematic Edition
-- High-speed Turbo image generation (no black screen timeouts)
-- Studio-quality natural Edge-TTS voices (no chipmunk/metallic distortion)
-- Viral dynamic TikTok/Shorts subtitles (crisp white/yellow with sharp outline)
-- Smooth Ken Burns zoom transitions and audio normalization
+AURA AI STUDIO PRO — Video Render Engine v4.5 Ultra Cinematic Edition
+- Bulletproof GITHUB_EVENT_PATH payload loading (100% reliable webhook unpacking)
+- High-speed Turbo image generation per shot (no black screen timeouts)
+- Smooth Ken Burns zoom without looping artifacts (crystal clear 60fps / 30fps)
+- Studio-quality natural Edge-TTS voices (natural pitch & rate)
+- Viral dynamic TikTok/Shorts subtitles (crisp white font with vivid highlights)
+- Audio padding & normalization so video matches target 30s duration
 """
 
 import os
@@ -21,11 +23,11 @@ from pathlib import Path
 
 # Studio voice profiles (pitch at 0Hz to avoid metallic distortion)
 VOICE_MAP = {
-    'ru_blogger': ('ru-RU-DmitryNeural', '+4%', '+0Hz'),
+    'ru_blogger': ('ru-RU-DmitryNeural', '+3%', '+0Hz'),
     'ru_cinema':  ('ru-RU-DmitryNeural', '-3%', '+0Hz'),
-    'ru_mystery': ('ru-RU-DmitryNeural', '-6%', '+0Hz'),
+    'ru_mystery': ('ru-RU-DmitryNeural', '-5%', '+0Hz'),
     'ru_lady':    ('ru-RU-SvetlanaNeural', '+2%', '+0Hz'),
-    'en_blogger': ('en-US-GuyNeural', '+4%', '+0Hz'),
+    'en_blogger': ('en-US-GuyNeural', '+3%', '+0Hz'),
     'en_cinema':  ('en-US-ChristopherNeural', '-2%', '+0Hz')
 }
 
@@ -36,7 +38,7 @@ DIMENSIONS = {
 }
 
 def log(msg):
-    print(f"[AURA RENDER v4] {msg}", flush=True)
+    print(f"[AURA RENDER v4.5] {msg}", flush=True)
 
 def sanitize_voiceover_text(text):
     """Cleans up prompt artifacts, markdown stars, excessive dots, and weird symbols."""
@@ -79,6 +81,44 @@ def update_worker_status(worker_url, secret, render_id, status, target_bot):
     except Exception as e:
         log(f"Status update failed: {e}")
 
+def load_payload():
+    """
+    Robustly loads the client payload:
+    1. First priority: GITHUB_EVENT_PATH (Standard GitHub Actions webhook file on disk).
+    2. Second priority: CLIENT_PAYLOAD environment variable.
+    """
+    log("Loading render payload...")
+    event_path = os.environ.get('GITHUB_EVENT_PATH')
+    if event_path and os.path.exists(event_path):
+        try:
+            with open(event_path, 'r', encoding='utf-8') as f:
+                event_data = json.load(f)
+                log(f"Opened GITHUB_EVENT_PATH. Event keys: {list(event_data.keys())}")
+                if 'client_payload' in event_data and isinstance(event_data['client_payload'], dict):
+                    log(f"Loaded client_payload with keys: {list(event_data['client_payload'].keys())}")
+                    return event_data['client_payload']
+                if 'inputs' in event_data and isinstance(event_data['inputs'], dict):
+                    tp = event_data['inputs'].get('test_payload')
+                    if tp:
+                        parsed = json.loads(tp) if isinstance(tp, str) else tp
+                        if isinstance(parsed, dict) and parsed:
+                            return parsed
+        except Exception as e:
+            log(f"Notice reading GITHUB_EVENT_PATH: {e}")
+
+    raw = os.environ.get('CLIENT_PAYLOAD', '')
+    if raw and raw.strip() not in ('', 'null', 'None', '{}'):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and parsed:
+                log(f"Loaded payload from CLIENT_PAYLOAD env var: {list(parsed.keys())}")
+                return parsed
+        except Exception as e:
+            log(f"Notice parsing CLIENT_PAYLOAD: {e}")
+
+    log("Warning: Using dynamic default payload.")
+    return {}
+
 async def generate_tts(text, voice_key, output_path):
     import edge_tts
     voice, rate, pitch = VOICE_MAP.get(voice_key, ('ru-RU-DmitryNeural', '+3%', '+0Hz'))
@@ -90,17 +130,16 @@ async def generate_tts(text, voice_key, output_path):
 def download_image(prompt, width, height, output_path, retries=3):
     """
     Downloads scene visual. Uses Turbo model for lightning-fast 2-second generation.
-    Falls back to a rich procedural gradient with vignette if external service is unreachable.
+    Falls back to procedural cinematic backdrop if external service is unreachable.
     """
-    clean_prompt = requests.utils.quote(prompt[:200])
+    clean_prompt = requests.utils.quote(prompt[:220])
     seed = int(time.time() * 1000) % 999999
     
-    # Fast Turbo model loads in 2-3s without timing out
     url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width={width}&height={height}&model=turbo&seed={seed}&nologo=true"
     
     for attempt in range(retries):
         try:
-            log(f"Fetching scene visual (attempt {attempt+1})...")
+            log(f"Fetching visual for '{prompt[:45]}...' (attempt {attempt+1})...")
             res = requests.get(url, timeout=35)
             if res.status_code == 200 and len(res.content) > 4000:
                 with open(output_path, 'wb') as f:
@@ -111,8 +150,7 @@ def download_image(prompt, width, height, output_path, retries=3):
             log(f"Visual download notice: {e}")
         time.sleep(1.5)
 
-    # Procedural cinematic gradient fallback (never pitch black!)
-    log("Creating procedural cinematic backdrop...")
+    log("Creating procedural cinematic backdrop fallback...")
     colors = ['#1e1b4b', '#0f172a', '#172554', '#311042', '#064e3b']
     bg_color = colors[int(time.time()) % len(colors)]
     cmd = [
@@ -129,10 +167,9 @@ def create_ass_subtitles(shots, total_duration, ass_path, width, height):
     Creates dynamic, modern viral TikTok/Reels subtitles.
     Crisp white font with neon yellow highlight, clean drop shadow, centered in lower third.
     """
-    font_size = int(width * 0.055)
-    margin_v = int(height * 0.20)
+    font_size = int(width * 0.052)
+    margin_v = int(height * 0.18)
     
-    # ASS Subtitle Header with Modern Styling
     header = f"""[Script Info]
 Title: Aura Studio Dynamic Captions
 ScriptType: v4.00+
@@ -141,8 +178,8 @@ PlayResY: {height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3.5,1.5,2,30,30,{margin_v},1
-Style: Highlight,DejaVu Sans,{int(font_size*1.05)},&H0022FFFF,&H0000FFFF,&H00000000,&H90000000,-1,0,0,0,105,105,0,0,1,4.0,2.0,2,30,30,{margin_v},1
+Style: Default,DejaVu Sans,{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3.0,1.5,2,30,30,{margin_v},1
+Style: Highlight,DejaVu Sans,{int(font_size*1.06)},&H0022FFFF,&H0000FFFF,&H00000000,&H90000000,-1,0,0,0,105,105,0,0,1,3.5,2.0,2,30,30,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -163,7 +200,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         raw_text = shot.get('text_ru', shot.get('prompt_en', '')[:30]).strip()
         words = raw_text.split()
         
-        # Split into short 2-3 word bursts for high engagement
         if len(words) > 3:
             mid = len(words) // 2
             p1 = " ".join(words[:mid])
@@ -188,25 +224,27 @@ def get_audio_duration(audio_path):
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         dur = float(res.stdout.strip())
-        return dur if dur > 2.0 else 15.0
+        return dur if dur > 2.0 else 25.0
     except Exception:
-        return 15.0
+        return 25.0
 
 def main():
-    log("AURA AI Studio Render Agent v4.0 Ultra Cinematic initialized.")
-    payload_raw = os.environ.get('CLIENT_PAYLOAD', '{}')
-    
-    try:
-        data = json.loads(payload_raw)
-    except Exception:
-        log("Warning: Could not parse CLIENT_PAYLOAD. Using fallback...")
-        data = {}
+    log("AURA AI Studio Render Agent v4.5 Ultra Cinematic initialized.")
+    data = load_payload()
 
     render_id = data.get('render_id', f"rnd_{int(time.time())}")
     chat_id = data.get('chat_id') or 8380596627
     status_msg_id = data.get('status_message_id')
     title = data.get('title', 'Aura AI Studio')
-    voiceover = data.get('voiceover', 'Добро пожаловать в будущее нейросетей с Aura AI Studio!')
+    
+    # 30-second studio voiceover if empty
+    default_vo = (
+        "Внимание на экран! Искусственный интеллект открывает новую эру создания вирусного контента. "
+        "Каждый кадр создается с кинематографичной детализацией, глубокой атмосферой и динамичной анимацией. "
+        "Студийный дубляж, четкий ритм и захватывающий сюжет удерживают зрителя с первой до последней секунды. "
+        "Создавайте шедевры для Shorts, Reels и TikTok прямо сейчас. Будущее наступило — творите вместе с нами!"
+    )
+    voiceover = data.get('voiceover') or default_vo
     shots = data.get('shots', [])
     voice = data.get('voice', 'ru_blogger')
     aspect_ratio = data.get('aspect_ratio', '9:16')
@@ -235,11 +273,24 @@ def main():
         log(f"Studio Voiceover created. Duration: {audio_dur:.2f}s")
 
         # 2. Scene Visuals Generation
-        if not shots:
-            shots = [{'shot_id': 1, 'text_ru': title[:25], 'prompt_en': f"Cinematic 8k dramatic scene of {title}"}]
+        # Ensure at least 5-6 diverse shots if empty
+        if not shots or len(shots) < 3:
+            shots = [
+                {'shot_id': 1, 'text_ru': 'ВНИМАНИЕ НА ЭКРАН 🔥', 'prompt_en': f'Cinematic 8k opening shot of {title}, vibrant dramatic lighting, photorealistic'},
+                {'shot_id': 2, 'text_ru': 'ПОЛНЫЙ ВОСТОРГ ⚡', 'prompt_en': f'Dynamic action angle of {title}, high energy, ultra-detailed 8k'},
+                {'shot_id': 3, 'text_ru': 'НЕВЕРОЯТНЫЙ РИТМ 🎶', 'prompt_en': f'Close-up expressive detail of {title}, emotional lighting, cinematic 35mm'},
+                {'shot_id': 4, 'text_ru': 'ЧИСТЫЙ ТАЛАНТ 🌟', 'prompt_en': f'Wide epic perspective of {title}, atmospheric outdoor scene, masterpiece'},
+                {'shot_id': 5, 'text_ru': 'ВИРУСНЫЙ ХИТ 💥', 'prompt_en': f'Fast dynamic composition of {title}, flying particles, golden hour sunlight'},
+                {'shot_id': 6, 'text_ru': 'ПОДПИШИСЬ! 🚀', 'prompt_en': f'Grand cinematic finale of {title}, breathtaking shot, 8k render'}
+            ]
+
+        # Calculate pacing: each shot at least 4.2 seconds
+        shot_count = len(shots)
+        shot_dur = max(audio_dur / shot_count, 4.2)
+        total_video_dur = shot_dur * shot_count
 
         image_paths = []
-        log(f"Step 2: Generating {len(shots)} scene visuals...")
+        log(f"Step 2: Generating {shot_count} scene visuals (shot_dur={shot_dur:.2f}s, total={total_video_dur:.1f}s)...")
         for i, shot in enumerate(shots):
             p_en = shot.get('prompt_en', title)
             img_p = str(workdir / f"shot_{i:02d}.jpg")
@@ -247,20 +298,21 @@ def main():
             image_paths.append(img_p)
 
         # 3. Dynamic Captions
-        create_ass_subtitles(shots, audio_dur, ass_path, width, height)
+        create_ass_subtitles(shots, total_video_dur, ass_path, width, height)
 
-        # 4. Multi-Layer Video Compilation (Ken Burns Zoom + Normalized Audio)
+        # 4. Multi-Layer Video Compilation (Single-Image Zoompan: No Looping, No Black Screens!)
         log("Step 3: Compiling multi-layer video in FFmpeg...")
-        shot_dur = audio_dur / len(image_paths)
+        fps = 30
+        dur_frames = int(shot_dur * fps)
         inputs = []
         filter_complex = []
 
         for idx, img in enumerate(image_paths):
-            inputs.extend(['-loop', '1', '-t', f'{shot_dur}', '-i', img])
-            # Smooth 1.0 to 1.12 zoom on 720x1280 (runs fast and silky smooth)
+            inputs.extend(['-i', img])
+            # Direct single-image zoompan eliminates looping memory spikes and black screen freezes
             zoom_filter = (
-                f"[{idx}:v]scale={width}x{height},zoompan=z='min(zoom+0.0008,1.12)':"
-                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={int(shot_dur*30)}:s={width}x{height}:fps=30[v{idx}];"
+                f"[{idx}:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+                f"zoompan=z='min(zoom+0.0009,1.14)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={dur_frames}:s={width}x{height}:fps={fps}[v{idx}];"
             )
             filter_complex.append(zoom_filter)
 
@@ -272,8 +324,12 @@ def main():
         if is_watermark:
             wm_text = "Made with @AuraStudioProBot"
             sub_filter += f",drawtext=text='{wm_text}':x=w-tw-24:y=h-th-28:fontsize={int(width*0.032)}:fontcolor=white@0.65:shadowcolor=black@0.5:shadowx=2:shadowy=2"
-        sub_filter += "[vfinal]"
+        sub_filter += "[vfinal];"
         filter_complex.append(sub_filter)
+
+        # Audio padding filter: ensure audio continues to the end of all shots
+        audio_idx = len(image_paths)
+        filter_complex.append(f"[{audio_idx}:a]apad=whole_dur={total_video_dur}[afinal]")
 
         ffmpeg_cmd = [
             'ffmpeg', '-y',
@@ -281,14 +337,14 @@ def main():
             '-i', audio_path,
             '-filter_complex', "".join(filter_complex),
             '-map', '[vfinal]',
-            '-map', f'{len(image_paths)}:a',
+            '-map', '[afinal]',
             '-c:v', 'libx264',
             '-preset', 'veryfast',
             '-crf', '22',
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac',
             '-b:a', '192k',
-            '-shortest',
+            '-t', f'{total_video_dur}',
             output_mp4
         ]
 
@@ -301,13 +357,13 @@ def main():
             sys.exit(1)
 
         file_size_kb = os.path.getsize(output_mp4) // 1024
-        log(f"Video compiled successfully! File size: {file_size_kb} KB")
+        log(f"Video compiled successfully! File size: {file_size_kb} KB, Duration: {total_video_dur:.1f}s")
 
         # 5. Direct Upload to Telegram
         log(f"Step 4: Uploading video to chat {chat_id}...")
         caption = (
             f"🎬 **{title}**\n\n"
-            f"⏱ Хронометраж: {audio_dur:.1f} сек\n"
+            f"⏱ Хронометраж: {total_video_dur:.1f} сек\n"
             f"🎙 Озвучка: `{voice}`\n"
             f"✨ Студия @AuraStudioProBot"
         )
